@@ -1,35 +1,79 @@
-const CACHE_NAME = "static_cache"
-const STATIC_ASSETS = [ 
-    '/index.html',
-    '/style.css', 
-    '/script.js'
-]
+var version = 'v1::';
 
-async function preCache() { 
-    const cache = await caches.open(CACHE_NAME)
-    return cache.addAll(STATIC_ASSETS)
-}
+self.addEventListener("install", function(event) {
+    console.log('WORKER: install event in progress.');
+    event.waitUntil(
+      caches
+        .open(version + 'fundamentals')
+        .then(function(cache) {
+          return cache.addAll([
+            '/index.html',
+            '/index.php',
+            '/script.js',
+            '/style.css'
+          ]);
+        })
+        .then(function() {
+          console.log('WORKER: install completed');
+        })
+    );
+  });
 
-self .addEventListener('install' , event => {
-    console. log ( " [SW] installed" ); 
-    event . waitUntil (preCache())
-})
 
-self .addEventListener( 'activate' , event =>{
-    console. log (" [SW] activated" ) ;
-})
+  self.addEventListener("fetch", function(event) {
+  console.log('WORKER: fetch event in progress.');
 
-async function fetchAssets(event) {
-    try{ 
-        const response = await fetch(event.request)
-        return response 
-    } catch (err) { 
-        const cache = await caches.open(CACHE_NAME)
-        return cache.match(event.request)
-    }
-}
+  
+  if (event.request.method !== 'GET') {
+    
+    console.log('WORKER: fetch event ignored.', event.request.method, event.request.url);
+    return;
+  }
+  
+  event.respondWith(
+    caches
+      
+      .match(event.request)
+      .then(function(cached) {
+        
+        var networked = fetch(event.request)
 
-self .addEventListener( 'fetch' , event => {
-    console. log (" [SW] fetched");
-    event. respondWith(fetchAssets(event))
-}) 
+          .then(fetchedFromNetwork, unableToResolve)
+
+          .catch(unableToResolve);
+
+        console.log('WORKER: fetch event', cached ? '(cached)' : '(network)', event.request.url);
+        return cached || networked;
+
+        function fetchedFromNetwork(response) {
+          var cacheCopy = response.clone();
+
+          console.log('WORKER: fetch response from network.', event.request.url);
+
+          caches
+            .open(version + 'pages')
+            .then(function add(cache) {
+              cache.put(event.request, cacheCopy);
+            })
+            .then(function() {
+              console.log('WORKER: fetch response stored in cache.', event.request.url);
+            });
+
+          
+          return response;
+        }
+
+        function unableToResolve () {
+          console.log('WORKER: fetch request failed in both cache and network.');
+
+          return new Response('<h1>Service Unavailable</h1>', {
+            status: 503,
+            statusText: 'Service Unavailable',
+            headers: new Headers({
+              'Content-Type': 'text/html'
+            })
+          });
+        }
+      })
+  );
+});
